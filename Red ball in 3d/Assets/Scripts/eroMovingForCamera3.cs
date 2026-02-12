@@ -1,157 +1,141 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class HeroMovingForCamera3 : MonoBehaviour
 {
-     Rigidbody rb;
-
-    private float speed;
-
+    private Rigidbody rb;
     private Vector3 direction;
 
-    public float speedWalk = 3;
+    [Header("Settings")]
+    public float speedWalk = 3f;
+    public float speedRun = 6f;
+    public float torqueForce = 50f;   // Сила кручения увеличена
+    public float rotationSpeed = 10f;
+    public float jump = 10f;
 
-    public float speedRun = 6;
-
-    public GameObject directionPoint; // точка ткоторую скрипт камеры утсановит для героя чтобы герой мог понять какое направление для него бдует являться передом а ккакое задом
-
-    private GameObject heroDirectionPoint; // точка которая бюудет поворачиваться туда куда герой должен повернуться когда мы нажали на какую то кнопку
-
-        private float rotationSpeed = 10;
-
-        
+    [Header("Links")]
+    public GameObject directionPoint; // Камера или точка направления 
     public bool onGround = true;
 
-    public float jump = 10;
+    private HeroFront frontObject;
+    public Transform frontObjectTransform;
+    private float currentSpeed;
 
-   
-     private HeroFront frontObject;
+    public float sensorOffset = 0.7f;
 
-
-        
-
-     
-    // Start is called before the first frame update
     void Start()
     {
-        rb=GetComponent<Rigidbody>();
-
-        heroDirectionPoint = new GameObject();
-        heroDirectionPoint.name = "hero direction point";
+        rb = GetComponent<Rigidbody>();
+        // Чтобы шар не буксовал, увеличиваем лимит скорости вращения
+        rb.maxAngularVelocity = 50f;
 
         frontObject = FindFirstObjectByType<HeroFront>();
-        if(frontObject == null)
-        {
-            print("error Cant find the front object");
-        }
-
     }
 
-    // Update is called once per frame
     void Update()
     {
-        
+        direction = Vector3.zero;
 
-        heroDirectionPoint.transform.position = transform.position;
-
-      direction = new Vector3(0, 0, 0);
-      speed = 0;
-        if(frontObject.onTheLadder == false)
+        if (frontObject != null && !frontObject.onTheLadder)
         {
-             //Vector3.forward - это направление вперед в глобальное системе координат
+            // Сбор ввода
+            float h = 0;
+            float v = 0;
 
-        if(Input.GetKey(KeyCode.W))
-        {
-            //direction = direction + Vector3.forward; - глобальная система координат
-             direction = direction + directionPoint.transform.forward;
-            speed = 1;
+            if (Input.GetKey(KeyCode.W)) v = 1;
+            if (Input.GetKey(KeyCode.S)) v = -1;
+            if (Input.GetKey(KeyCode.D)) h = 1;
+            if (Input.GetKey(KeyCode.A)) h = -1;
+
+            // Расчет направления относительно directionPoint
+            Vector3 forward = directionPoint.transform.forward;
+            Vector3 right = directionPoint.transform.right;
+            forward.y = 0;
+            right.y = 0;
+            direction = (forward * v + right * h).normalized;
+
+            // Прыжок
+            if (Input.GetKeyDown(KeyCode.Space) && onGround)
+            {
+                rb.AddForce(Vector3.up * jump, ForceMode.Impulse);
+                onGround = false;
+            }
+
+            currentSpeed = Input.GetKey(KeyCode.LeftShift) ? speedRun : speedWalk;
+
+            // Поворот визуальной модели (не самого шара!)
+            if (direction != Vector3.zero)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(direction);
+            }
         }
-
-          if(Input.GetKey(KeyCode.S))
+        else if (frontObject != null && frontObject.onTheLadder)
         {
-          //direction = direction - Vector3.forward;
-           direction = direction - directionPoint.transform.forward;
-          speed = 1;
+            HandleLadder();
         }
+    }
 
-            if(Input.GetKey(KeyCode.D))
+    void LateUpdate()
+    {
+        if (frontObjectTransform != null)
         {
-            //direction =  direction + Vector3.right;
-            direction =  direction + directionPoint.transform.right;
-            
-            
-            speed = 1;
+            // 1. ПРОВЕРКА: Если мы движемся, обновляем направление "выноса"
+            // Если стоим (direction == zero), используем текущий forward датчика
+            Vector3 pushDirection = direction != Vector3.zero ? direction.normalized : frontObjectTransform.forward;
+
+            // 2. Рассчитываем позицию (теперь она никогда не будет в центре)
+            Vector3 targetPosition = transform.position + (pushDirection * sensorOffset);
+            targetPosition.y = transform.position.y;
+
+            frontObjectTransform.position = targetPosition;
+
+            // 3. Поворачиваем датчик, только если есть ввод
+            if (direction != Vector3.zero)
+            {
+                frontObjectTransform.forward = direction;
+            }
         }
+    }
 
-               if(Input.GetKey(KeyCode.A))
+    void HandleLadder()
+    {
+        rb.useGravity = false;
+        Vector3 ladderDir = Vector3.zero;
+        if (Input.GetKey(KeyCode.W)) ladderDir = Vector3.up;
+        if (Input.GetKey(KeyCode.S)) ladderDir = Vector3.down;
+
+        rb.velocity = ladderDir * speedWalk;
+
+        if (Input.GetKeyDown(KeyCode.Space))
         {
-            //direction = direction - Vector3.right;
-            direction =  direction - directionPoint.transform.right;
-            speed = 1;
+            frontObject.SetLadderStatus(false);
+            rb.useGravity = true;
         }
+    }
 
-       //   rb.AddForce(Vector3.down * extraGravity,  ForceMode.Acceleration);
-
-        if(Input.GetKeyDown(KeyCode.Space) && onGround == true)
+    void FixedUpdate()
+    {
+        if (direction != Vector3.zero && (frontObject == null || !frontObject.onTheLadder))
         {
-            rb.AddForce(Vector3.up * 200 * jump);
+            // Главное исправление: крутим шар перпендикулярно направлению движения
+            Vector3 torqueAxis = Vector3.Cross(Vector3.up, direction);
+            rb.AddTorque(torqueAxis * torqueForce * currentSpeed, ForceMode.Force);
+
+            // Дополнительная сила для отзывчивости
+            rb.AddForce(direction * currentSpeed * 2f, ForceMode.Acceleration);
+        }
+    }
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("Ground"))
+        {
+            onGround = true;
+        }
+    }
+    private void OnCollisionExit(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("Ground"))
+        {
             onGround = false;
         }
-        rb.AddForce(-Vector3.up * 2);
-
-     if(frontObject.onTheLadder == true)
-                {
-                    if(Input.GetKeyDown(KeyCode.Space))
-                    {
-                        frontObject.SetLadderStatus(false);
-                    }
-                }
-
-
-        direction = direction.normalized;
-
-         if(Input.GetKey(KeyCode.RightShift) || Input.GetKey(KeyCode.LeftShift))
-        {
-            speed = speedRun * speed;
-        }
-        else
-        {
-            {
-                speed = speedWalk * speed;
-            }
-        }
-    // будем поворачивать героя только если какие то кнопки нажаты
-    
-    if(direction != new Vector3(0, 0, 0))
-    {
-        // transform.forward = direction -  мгновенный поворот
-        heroDirectionPoint.transform.forward = direction;
-        // метод RotateTowards который плавно меняет угол поворота объенкта до тех пор пока он не сравняется с нужным объектом
-        Vector3 newDirection = Vector3.RotateTowards(transform.forward, heroDirectionPoint.transform.forward, rotationSpeed * Time.deltaTime, 0);
-        transform.rotation = Quaternion.LookRotation(newDirection); 
-    }
-       
-        rb.velocity = transform.forward * speed + new Vector3(0,rb.velocity.y, 0); // устанавливаем веткор скорости
-        
-        }
-
-         if(frontObject.onTheLadder == true)
-        {
-            direction = new Vector3(0, 0, 0);
-
-            if(Input.GetKey(KeyCode.W))
-            {
-                direction = Vector3.up;
-            }
-
-             if(Input.GetKey(KeyCode.S))
-            {
-                direction = Vector3.down;
-            }
-
-            rb.velocity = direction * speedWalk;
-        }
-       
     }
 }

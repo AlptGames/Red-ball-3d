@@ -1,48 +1,55 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class HeroFront : MonoBehaviour
 {
     public bool onTheLadder = false;
     private GameObject hero;
-  
-    // Start is called before the first frame update
+
+    // Даем переменной понятное имя со строчной буквы
+    private HeroMovingForCamera3 heroScript;
+
     void Start()
     {
         onTheLadder = false;
-        //hero = FindFirstObjectByType<HeroMoving>().gameObject;
-        hero = FindFirstObjectByType<HeroMovingForCamera3>().gameObject;
 
-        //FindFirstObjectByType - функция ищет первый попавшийся объект на котором есть определеннвй компонент
-    }
+        // Находим скрипт на сцене
+        heroScript = FindFirstObjectByType<HeroMovingForCamera3>();
 
-    // Update is called once per frame
-    void Update()
-    {
-        
+        if (heroScript != null)
+        {
+            hero = heroScript.gameObject;
+        }
+        else
+        {
+            Debug.LogError("HeroMovingForCamera3 не найден на сцене!");
+        }
     }
 
     void OnTriggerEnter(Collider col)
     {
-        if(col.gameObject.GetComponent<Ladder>() != null)
+        // Проверяем, что коснулись лестницы И что скрипт героя найден
+        if (col.gameObject.GetComponent<Ladder>() != null && heroScript != null)
         {
             SetLadderStatus(true);
+            heroScript.onGround = true; // Используем правильное имя переменной
         }
     }
 
     void OnTriggerExit(Collider col)
     {
-        if(col.gameObject.GetComponent<Ladder>() != null)
+        if (col.gameObject.GetComponent<Ladder>() != null && heroScript != null)
         {
-           SetLadderStatus(false);
+            SetLadderStatus(false);
+            heroScript.onGround = false; // Используем правильное имя переменной
         }
     }
 
     public void SetLadderStatus(bool status)
     {
-        onTheLadder = status; // менять значение onTheLAdder юудем через отдельную функцию
-        hero.GetComponent<Rigidbody>().useGravity = !status;
-        // !status - противоположное значение переменной статус
+        onTheLadder = status;
+        if (hero != null)
+        {
+            hero.GetComponent<Rigidbody>().useGravity = !status;
+        }
     }
 }
