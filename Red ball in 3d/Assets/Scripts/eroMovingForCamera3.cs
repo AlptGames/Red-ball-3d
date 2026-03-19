@@ -7,27 +7,37 @@ public class HeroMovingForCamera3 : MonoBehaviour
 
     [Header("Settings")]
     public float speedWalk = 3f;
-    public float speedRun = 6f;
-    public float torqueForce = 50f;   // Сила кручения увеличена
     public float rotationSpeed = 10f;
     public float jump = 10f;
 
     [Header("Links")]
-    public GameObject directionPoint; // Камера или точка направления 
+    public GameObject directionPoint;
     public bool onGround = true;
 
     private HeroFront frontObject;
     public Transform frontObjectTransform;
-    private float currentSpeed;
 
     public float sensorOffset = 0.7f;
+
+    [Header("Smoothness")]
+    public float acceleration = 15f;
+    public float deceleration = 10f;
+
+    [Header("Air Control")]
+    [Range(0.1f, 1f)]
+    public float airControlModifier = 0.3f; // 0.3 значит, что в воздухе управление на 70% слабее
+
+    public int lives = 3;
+
+    public Transform playerPos;
+
+    public static Transform lastCheckpointPos;
+
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
-        // Чтобы шар не буксовал, увеличиваем лимит скорости вращения
         rb.maxAngularVelocity = 50f;
-
         frontObject = FindFirstObjectByType<HeroFront>();
     }
 
@@ -37,35 +47,19 @@ public class HeroMovingForCamera3 : MonoBehaviour
 
         if (frontObject != null && !frontObject.onTheLadder)
         {
-            // Сбор ввода
-            float h = 0;
-            float v = 0;
+            float h = Input.GetAxisRaw("Horizontal");
+            float v = Input.GetAxisRaw("Vertical");
 
-            if (Input.GetKey(KeyCode.W)) v = 1;
-            if (Input.GetKey(KeyCode.S)) v = -1;
-            if (Input.GetKey(KeyCode.D)) h = 1;
-            if (Input.GetKey(KeyCode.A)) h = -1;
-
-            // Расчет направления относительно directionPoint
             Vector3 forward = directionPoint.transform.forward;
             Vector3 right = directionPoint.transform.right;
             forward.y = 0;
             right.y = 0;
             direction = (forward * v + right * h).normalized;
 
-            // Прыжок
             if (Input.GetKeyDown(KeyCode.Space) && onGround)
             {
                 rb.AddForce(Vector3.up * jump, ForceMode.Impulse);
                 onGround = false;
-            }
-
-            currentSpeed = Input.GetKey(KeyCode.LeftShift) ? speedRun : speedWalk;
-
-            // Поворот визуальной модели (не самого шара!)
-            if (direction != Vector3.zero)
-            {
-                Quaternion targetRotation = Quaternion.LookRotation(direction);
             }
         }
         else if (frontObject != null && frontObject.onTheLadder)
@@ -78,17 +72,12 @@ public class HeroMovingForCamera3 : MonoBehaviour
     {
         if (frontObjectTransform != null)
         {
-            // 1. ПРОВЕРКА: Если мы движемся, обновляем направление "выноса"
-            // Если стоим (direction == zero), используем текущий forward датчика
             Vector3 pushDirection = direction != Vector3.zero ? direction.normalized : frontObjectTransform.forward;
-
-            // 2. Рассчитываем позицию (теперь она никогда не будет в центре)
             Vector3 targetPosition = transform.position + (pushDirection * sensorOffset);
             targetPosition.y = transform.position.y;
 
             frontObjectTransform.position = targetPosition;
 
-            // 3. Поворачиваем датчик, только если есть ввод
             if (direction != Vector3.zero)
             {
                 frontObjectTransform.forward = direction;
@@ -114,28 +103,41 @@ public class HeroMovingForCamera3 : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (direction != Vector3.zero && (frontObject == null || !frontObject.onTheLadder))
-        {
-            // Главное исправление: крутим шар перпендикулярно направлению движения
-            Vector3 torqueAxis = Vector3.Cross(Vector3.up, direction);
-            rb.AddTorque(torqueAxis * torqueForce * currentSpeed, ForceMode.Force);
+        bool canMove = (frontObject == null || !frontObject.onTheLadder);
 
-            // Дополнительная сила для отзывчивости
-            rb.AddForce(direction * currentSpeed * 2f, ForceMode.Acceleration);
+        if (direction != Vector3.zero && canMove)
+        {
+            // 1. Определяем текущее ускорение: полное на земле или уменьшенное в воздухе
+            float currentAcceleration = onGround ? acceleration : (acceleration * airControlModifier);
+
+            // 2. Рассчитываем изменение скорости
+            Vector3 targetVelocity = direction * speedWalk;
+            Vector3 velocityChange = targetVelocity - new Vector3(rb.velocity.x, 0, rb.velocity.z);
+
+            // Прикладываем силу (с учетом того, на земле мы или нет)
+            rb.AddForce(velocityChange * currentAcceleration, ForceMode.Acceleration);
+
+            // 3. Вращение шара (визуальное) замедляем в воздухе аналогично
+            Vector3 torqueAxis = Vector3.Cross(Vector3.up, direction);
+            float rotationStep = onGround ? acceleration : (acceleration * airControlModifier);
+            rb.angularVelocity = Vector3.Lerp(rb.angularVelocity, torqueAxis * (speedWalk * 2f), Time.fixedDeltaTime * rotationStep);
+        }
+        else if (onGround && canMove)
+        {
+            // Торможение работает только на земле
+            Vector3 horizontalVel = new Vector3(rb.velocity.x, 0, rb.velocity.z);
+            rb.AddForce(-horizontalVel * deceleration, ForceMode.Acceleration);
+            rb.angularVelocity = Vector3.Lerp(rb.angularVelocity, Vector3.zero, Time.fixedDeltaTime * deceleration);
         }
     }
+
     private void OnCollisionEnter(Collision collision)
     {
-        if (collision.gameObject.CompareTag("Ground"))
-        {
-            onGround = true;
-        }
+        if (collision.gameObject.CompareTag("Ground")) onGround = true;
     }
+
     private void OnCollisionExit(Collision collision)
     {
-        if (collision.gameObject.CompareTag("Ground"))
-        {
-            onGround = false;
-        }
+        if (collision.gameObject.CompareTag("Ground")) onGround = false;
     }
 }
