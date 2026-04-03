@@ -9,6 +9,7 @@ TagManager:
   - CheckPoint
   - Spike
   - Star
+  - Enemy
   layers:
   - Default
   - TransparentFX
