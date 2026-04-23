@@ -98,12 +98,6 @@ public class PlayerController : MonoBehaviour
     {
         if(collision.gameObject.CompareTag("Spike")) { TakeDamage(1); }
         if(collision.gameObject.CompareTag("Water")) { TakeDamage(3); }
-        if (collision.gameObject.CompareTag("Enemy")) { WaitAndTakeDamage(0.2f, 1); }
-    }
-
-    private IEnumerator WaitAndTakeDamage(float time, int damage)
-    {
-        yield return new WaitForSeconds(time);
-        TakeDamage(damage);
+        if (collision.gameObject.CompareTag("Enemy")) { TakeDamage(1); }
     }
 }
